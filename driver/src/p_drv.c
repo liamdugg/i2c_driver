@@ -47,13 +47,18 @@ static int bmp_pdrv_probe(struct platform_device *pdev) {
 		pr_err("BMP --> Propiedades del DeviceTree incorrectas.\n");
 		return -EINVAL;
 	}
-	
+
 	if(char_dev_init(pdev) != 0){
 		i2c_dev = NULL;
 		pr_err("BMP --> Funcion %s tuvo un error.\n", "bmp_cdev_init");
 		return -EINVAL;
 	}
 
+	if(i2c_init(pdev) != 0){
+        pr_err("BMP --> No pudo inicializarse el modulo i2c.\n");
+        return -EINVAL;
+	}
+	
 	return 0;
 }
 

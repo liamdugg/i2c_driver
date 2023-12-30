@@ -26,19 +26,16 @@ static const struct modversion_info ____versions[]
 __used
 __attribute__((section("__versions"))) = {
 	{ 0x6145744f, "module_layout" },
-	{ 0x622a6766, "cdev_alloc" },
-	{ 0x40b9a678, "cdev_del" },
+	{ 0x6bc3fbc0, "__unregister_chrdev" },
 	{ 0x12da5bb2, "__kmalloc" },
 	{ 0x100ab881, "cdev_init" },
 	{ 0x87b6b8b5, "device_destroy" },
 	{ 0xb1ad28e0, "__gnu_mcount_nc" },
 	{ 0x67ea780, "mutex_unlock" },
-	{ 0x6091b333, "unregister_chrdev_region" },
 	{ 0x6a412b, "__platform_driver_register" },
 	{ 0xf4fa543b, "arm_copy_to_user" },
 	{ 0xe707d823, "__aeabi_uidiv" },
 	{ 0x7c32d0f0, "printk" },
-	{ 0x53b6fc7f, "class_unregister" },
 	{ 0xe97c4103, "ioremap" },
 	{ 0xc271c3be, "mutex_lock" },
 	{ 0x7210f3f8, "device_create" },
@@ -75,4 +72,4 @@ __attribute__((section(".modinfo"))) =
 MODULE_ALIAS("of:N*T*Cliam,i2c");
 MODULE_ALIAS("of:N*T*Cliam,i2cC*");
 
-MODULE_INFO(srcversion, "17B3A0A776EC820ADA664F0");
+MODULE_INFO(srcversion, "50A334E5EA92EE623DED29F");

@@ -335,6 +335,8 @@ static irqreturn_t i2c_handler(int irq, void *dev_id, struct pt_regs* regs){
 	uint32_t irq_stat = ioread32(instance + I2C_IRQSTAT);
 	uint32_t reg;
 
+	pr_info("BMP --> IRQ HOLA\n");
+
 	iowrite32(irq_stat & ~(I2C_IRQ_RRDY | I2C_IRQ_XRDY | I2C_IRQ_ARDY), instance + I2C_IRQSTAT);
 
 	// TX
@@ -387,6 +389,7 @@ static irqreturn_t i2c_handler(int irq, void *dev_id, struct pt_regs* regs){
 	if (irq_stat & I2C_IRQ_NACK)
 		pr_warn("BMP --> NACK recibido.\n");
 
+	pr_info("BMP --> IRQ CHAU\n");
 	return (irqreturn_t) IRQ_HANDLED;
 }
 
