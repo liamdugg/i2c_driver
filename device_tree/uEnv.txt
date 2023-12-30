@@ -1,0 +1,8 @@
+#for single partitions
+mmcroot=/dev/mmcblk0p1
+uname_r=4.19.280-bone76
+
+dtb=dt_liam.dtb
+//enable_uboot_overlays=1
+//dtb_overlay=/home/ubuntu/td/device_tree/i2c_overlay.dtbo
+//enable_uboot_cape_universal=1
