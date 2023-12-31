@@ -1,5 +1,4 @@
 KERNEL_SOURCE = /lib/modules/$(shell uname -r)/build
-DRIVER_NAME = liam_i2c
 MOD_NAME = liam_module
 
 # Converts a module object in LKM
@@ -41,7 +40,7 @@ awk:
 	cat /proc/devices | grep $(MOD_NAME)
 
 tail:
-	tail -f /var/log/syslog
+	tail -f /var/log/syslog | grep BMP
 
 info:
 	modinfo $(MOD_NAME).ko

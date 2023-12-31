@@ -18,16 +18,15 @@ int bmp_init(void){
 		pr_err("BMP --> Error, no se pudo inicializar el sensor.\n");
 		return -EINVAL;
 	}
-
-
+	
 	// chequeo el chip id
 	if (bmp_check_chipid() != 0){
 		pr_err("BMP --> Error, no se pudo inicializar el sensor.\n");
 		return -EINVAL;
 	}
 	
-	// levanto los valores de calibracion
-	bmp_get_calib_values();*/
+	//levanto los valores de calibracion
+	bmp_get_calib_values();
 	
 	return 0;
 }

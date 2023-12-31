@@ -74,7 +74,7 @@ typedef struct {
 /* --------------- BMP --------------- */
 /* source https://cdn-shop.adafruit.com/datasheets/BST-BMP180-DS000-09.pdf */
 
-#define SLAVE_ADDR	0xEE
+#define SLAVE_ADDR	0x77
 
 // CALIBRATION REGISTERS (read-only)
 #define REG_MSB_AC1 	0xAA
