@@ -2,6 +2,7 @@
 #include "../inc/i2c.h"
 
 static bmp_t bmp;
+static uint8_t data[2];
 
 static int  bmp_check_chipid(void);
 static void bmp_get_calib_values(void);
@@ -18,7 +19,7 @@ int bmp_init(void){
 		return -EINVAL;
 	}
 
-	/*
+
 	// chequeo el chip id
 	if (bmp_check_chipid() != 0){
 		pr_err("BMP --> Error, no se pudo inicializar el sensor.\n");
@@ -31,58 +32,8 @@ int bmp_init(void){
 	return 0;
 }
 
-static void bmp_get_calib_values(void){
-
-	uint8_t msb, lsb;
-
-	bmp_read_reg(REG_MSB_AC1, &msb);
-	bmp_read_reg(REG_LSB_AC1, &lsb);
-	bmp.calib.AC1 = GET_REG_VALUE(msb,lsb);
-	
-	bmp_read_reg(REG_MSB_AC2, &msb);
-	bmp_read_reg(REG_LSB_AC2, &lsb);
-	bmp.calib.AC2 = GET_REG_VALUE(msb,lsb);
-	
-	bmp_read_reg(REG_MSB_AC3, &msb);
-	bmp_read_reg(REG_LSB_AC3, &lsb);
-	bmp.calib.AC3 = GET_REG_VALUE(msb,lsb);
-	
-	bmp_read_reg(REG_MSB_AC4, &msb);
-	bmp_read_reg(REG_LSB_AC4, &lsb);
-	bmp.calib.AC4 = GET_REG_VALUE(msb,lsb);
-	
-	bmp_read_reg(REG_MSB_AC5, &msb);
-	bmp_read_reg(REG_LSB_AC5, &lsb);
-	bmp.calib.AC5 = GET_REG_VALUE(msb,lsb);
-	
-	bmp_read_reg(REG_MSB_AC6, &msb);
-	bmp_read_reg(REG_LSB_AC6, &lsb);
-	bmp.calib.AC6 = GET_REG_VALUE(msb,lsb);
-	
-	bmp_read_reg(REG_MSB_B1, &msb);
-	bmp_read_reg(REG_LSB_B1,  &lsb);
-	bmp.calib.B1 = GET_REG_VALUE(msb,lsb);
-	
-	bmp_read_reg(REG_MSB_B2, &msb);
-	bmp_read_reg(REG_LSB_B2,  &lsb);
-	bmp.calib.B2 = GET_REG_VALUE(msb,lsb);
-	
-	bmp_read_reg(REG_MSB_MB, &msb);
-	bmp_read_reg(REG_LSB_MB,  &lsb);
-	bmp.calib.MB = GET_REG_VALUE(msb,lsb);
-
-	bmp_read_reg(REG_MSB_MC, &msb);
-	bmp_read_reg(REG_LSB_MC, &lsb);
-	bmp.calib.MC = GET_REG_VALUE(msb,lsb);
-	
-	bmp_read_reg(REG_LSB_MD, &lsb);
-	bmp_read_reg(REG_MSB_MD, &msb);
-	bmp.calib.MD = GET_REG_VALUE(msb,lsb);
-}
-
 static int bmp_write_reg(uint8_t reg_addr, uint8_t value){
 
-	uint8_t data[2];
 	data[0] = reg_addr;
 	data[1] = value;
 
@@ -95,6 +46,13 @@ static int bmp_write_reg(uint8_t reg_addr, uint8_t value){
 }
 
 static int bmp_read_reg(uint8_t reg_addr, uint8_t* store){
+
+	data[0] = reg_addr;
+
+	if( i2c_write(SLAVE_ADDR, data, 1) != 0){
+		pr_err("BMP --> Error, no se pudo leer el registro.\n");
+		return -1;
+	}
 
 	if (i2c_read(SLAVE_ADDR, &reg_addr, store, REG_SIZE) != 0){
 		pr_err("BMP --> Error, no se pudo leer el registro.\n");
@@ -155,9 +113,59 @@ void bmp_measure(void){
 	return;
 }
 
+static void bmp_get_calib_values(void){
+
+	uint8_t msb, lsb;
+
+	bmp_read_reg(REG_MSB_AC1, &msb);
+	bmp_read_reg(REG_LSB_AC1, &lsb);
+	bmp.calib.AC1 = GET_REG_VALUE(msb,lsb);
+	
+	bmp_read_reg(REG_MSB_AC2, &msb);
+	bmp_read_reg(REG_LSB_AC2, &lsb);
+	bmp.calib.AC2 = GET_REG_VALUE(msb,lsb);
+	
+	bmp_read_reg(REG_MSB_AC3, &msb);
+	bmp_read_reg(REG_LSB_AC3, &lsb);
+	bmp.calib.AC3 = GET_REG_VALUE(msb,lsb);
+	
+	bmp_read_reg(REG_MSB_AC4, &msb);
+	bmp_read_reg(REG_LSB_AC4, &lsb);
+	bmp.calib.AC4 = GET_REG_VALUE(msb,lsb);
+	
+	bmp_read_reg(REG_MSB_AC5, &msb);
+	bmp_read_reg(REG_LSB_AC5, &lsb);
+	bmp.calib.AC5 = GET_REG_VALUE(msb,lsb);
+	
+	bmp_read_reg(REG_MSB_AC6, &msb);
+	bmp_read_reg(REG_LSB_AC6, &lsb);
+	bmp.calib.AC6 = GET_REG_VALUE(msb,lsb);
+	
+	bmp_read_reg(REG_MSB_B1, &msb);
+	bmp_read_reg(REG_LSB_B1,  &lsb);
+	bmp.calib.B1 = GET_REG_VALUE(msb,lsb);
+	
+	bmp_read_reg(REG_MSB_B2, &msb);
+	bmp_read_reg(REG_LSB_B2,  &lsb);
+	bmp.calib.B2 = GET_REG_VALUE(msb,lsb);
+	
+	bmp_read_reg(REG_MSB_MB, &msb);
+	bmp_read_reg(REG_LSB_MB,  &lsb);
+	bmp.calib.MB = GET_REG_VALUE(msb,lsb);
+
+	bmp_read_reg(REG_MSB_MC, &msb);
+	bmp_read_reg(REG_LSB_MC, &lsb);
+	bmp.calib.MC = GET_REG_VALUE(msb,lsb);
+	
+	bmp_read_reg(REG_LSB_MD, &lsb);
+	bmp_read_reg(REG_MSB_MD, &msb);
+	bmp.calib.MD = GET_REG_VALUE(msb,lsb);
+}
+
 static int bmp_check_chipid(void){
 
 	bmp_read_reg(REG_CHIP_ID, &bmp.chip_id);
+	pr_info("BMP --> El chip id es: %x", bmp.chip_id);
 
 	if(bmp.chip_id == CHIP_ID) 
 		return 0;
