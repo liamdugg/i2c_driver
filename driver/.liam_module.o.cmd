@@ -1,1 +1,0 @@
-cmd_/home/ubuntu/td/driver/liam_module.o := ld  -EL -z noexecstack     -r -o /home/ubuntu/td/driver/liam_module.o /home/ubuntu/td/driver/src/p_drv.o /home/ubuntu/td/driver/src/i2c.o /home/ubuntu/td/driver/src/c_dev.o /home/ubuntu/td/driver/src/bmp.o 

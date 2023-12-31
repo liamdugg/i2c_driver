@@ -18,12 +18,16 @@ int i2c_init (struct platform_device* pdev);
 int i2c_read (uint8_t slv_addr, uint8_t* reg_addr, uint8_t* store_buf, uint8_t size);
 int i2c_write(uint8_t slv_addr, uint8_t* data_to_copy, uint8_t size);
 void i2c_remove(void);
+
 /* --------------- DEFINES --------------- */
 
 #define SYSCLK		48000000
 #define MODCLK		12000000
 #define OUTCLK		100000
 
+//#define 
+
+// I2C 
 #define I2C_REG_BASE 0x4819C000
 #define I2C_REG_SIZE 0x1000
 
@@ -83,16 +87,16 @@ void i2c_remove(void);
 #define CM_PER_I2C2_MODMODE_EN	0x2
 
 // CONTROL MODULE
-#define CTRL_MOD_BASE		0x44E10000
+#define CTRL_MOD_BASE			0x44E10000
 
-#define CTRL_MOD_SCL_OFF		0x97C
-#define CTRL_MOD_SDA_OFF		0x970
+#define CTRL_MOD_SCL			0x97C
+#define CTRL_MOD_SDA			0x978
 
-#define CTRL_MOD_SCL			0X3B
-#define CTRL_MOD_SDA			0x3B
+#define CTRL_MOD_SCL_MODE		0X33
+#define CTRL_MOD_SDA_MODE		0x33
 
-#define CTRL_MOD_SCL_MSK		0xFFFFFF80
-#define CTRL_MOD_SDA_MSK		0xFFFFFF80
+#define CTRL_MOD_SCL_MSK		0xFFFFFFC0
+#define CTRL_MOD_SDA_MSK		0xFFFFFFC0
 
 
 int i2c_init(struct platform_device* pdev);
