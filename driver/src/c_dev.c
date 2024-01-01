@@ -7,7 +7,7 @@ static int		char_dev_close(struct inode* inodep,struct file* file);
 static ssize_t	char_dev_read(struct file* filep, char* usr_buf, size_t len, loff_t* offset);
 static ssize_t	char_dev_write(struct file* filep, const char* buffer, size_t len, loff_t* offset);
 static long int char_dev_ioctl(struct file* file, unsigned cmd, unsigned long __user arg);
-static char*    char_dev_devnode(struct device* dev, umode_t* mode);
+//static char*    char_dev_devnode(struct device* dev, umode_t* mode);
 
 /* --------------- VARIABLES --------------- */
 
@@ -100,23 +100,22 @@ static int char_dev_open(struct inode* inodep, struct file* filep){
     }
 
     pr_info("BMP --> Salida de funcion %s\n", __func__);
-    //pr_info("BMP --> Sensor inicializado.\n");*/
     return 0;
 }
 
 static int char_dev_close(struct inode* inodep, struct file* filep){
 
-    pr_info("BMP --> Ingreso a funcion %s\n", __func__);
-    pr_info("BMP --> Salida de funcion %s\n", __func__);
+    //pr_info("BMP --> Ingreso a funcion %s\n", __func__);
+    //pr_info("BMP --> Salida de funcion %s\n", __func__);
     //i2c_remove();
     return 0;
 }
 
 static ssize_t char_dev_read(struct file* filep, char* usr_buf, size_t len, loff_t* offset){
     
-    char aux_buf[len];
+    //char aux_buf[len];
 
-    pr_info("BMP --> Ingreso a funcion %s.\n", __func__);
+    //pr_info("BMP --> Ingreso a funcion %s.\n", __func__);
     /*
     // si quiere leer un solo valor asumo que quiere el de temperatura
     // si quiere 2 envio temperatura y presion.
@@ -146,7 +145,7 @@ static ssize_t char_dev_read(struct file* filep, char* usr_buf, size_t len, loff
         return 0;
     }*/
 
-    pr_info("BMP --> Salida de funcion %s\n", __func__);
+   // pr_info("BMP --> Salida de funcion %s\n", __func__);
 	return len;
 }
 
@@ -159,14 +158,16 @@ static ssize_t char_dev_write(struct file* filep, const char* buffer, size_t len
 
 static long int char_dev_ioctl(struct file* file, unsigned cmd, unsigned long __user arg){
 
-    pr_info("BMP --> Ingreso a funcion %s\n", __func__);
-    pr_info("BMP --> Salida de funcion %s\n", __func__);
+    //pr_info("BMP --> Ingreso a funcion %s\n", __func__);
+    //pr_info("BMP --> Salida de funcion %s\n", __func__);
 	return 0;
 }
 
+/*
 static char* char_dev_devnode(struct device* dev, umode_t* mode){
     
     if(mode != NULL) *mode = 0666;
     
     return NULL;
 }
+*/

@@ -87,7 +87,7 @@ static int bmp_pdrv_check_properties(void){
 		return -EINVAL;
 	
 	device_property_read_u32_array(i2c_dev, "reg", buf, 2);
-	pr_info("BMP --> reg: %x \n BMP --> size: %x \n", buf[0], buf[1]);
+	pr_info("BMP --> reg: %x \nBMP --> size: %x \n", buf[0], buf[1]);
 	if( (buf[0] != DT_PROP_REG) && (buf[1] != DT_PROP_REG_SIZE))
 		return -EINVAL;
 	

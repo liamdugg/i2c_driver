@@ -6,18 +6,16 @@ static uint8_t data[2];
 
 static int  bmp_check_chipid(void);
 static void bmp_get_calib_values(void);
-static int  bmp_write_reg(uint8_t reg_addr, uint8_t value);
+static int  bmp_write_reg(uint8_t reg_addr, uint8_t value, uint8_t size);
 static int  bmp_read_reg (uint8_t reg_addr, uint8_t* store);
 
 int bmp_init(void){
 
-	pr_info("BMP --> Ingreso a %s", __func__);
-
 	// lo reinicio
-	if( bmp_write_reg(REG_SOFT_RESET, POWER_ON_RESET)  != 0){
-		pr_err("BMP --> Error, no se pudo inicializar el sensor.\n");
-		return -EINVAL;
-	}
+	// if( bmp_write_reg(REG_SOFT_RESET, POWER_ON_RESET, 2)  != 0){
+	// 	pr_err("BMP --> Error, no se pudo inicializar el sensor.\n");
+	// 	return -EINVAL;
+	// }
 	
 	// chequeo el chip id
 	if (bmp_check_chipid() != 0){
@@ -27,16 +25,15 @@ int bmp_init(void){
 	
 	//levanto los valores de calibracion
 	bmp_get_calib_values();
-	
 	return 0;
 }
 
-static int bmp_write_reg(uint8_t reg_addr, uint8_t value){
+static int bmp_write_reg(uint8_t reg_addr, uint8_t value, uint8_t size){
 
 	data[0] = reg_addr;
 	data[1] = value;
 
-	if(i2c_write(SLAVE_ADDR, data, 2) != 0){
+	if(i2c_write(SLAVE_ADDR, data, size) != 0){
 		pr_err("BMP--> Error, no se pudo escribir el registro");
 		return -1;
 	}
@@ -47,18 +44,21 @@ static int bmp_write_reg(uint8_t reg_addr, uint8_t value){
 static int bmp_read_reg(uint8_t reg_addr, uint8_t* store){
 
 	data[0] = reg_addr;
+	data[1] = 0;// no lo uso
 
+	// podria pasar data directamente pero queda mas claro con &data[0] creo
 	if( i2c_write(SLAVE_ADDR, data, 1) != 0){
 		pr_err("BMP --> Error, no se pudo leer el registro.\n");
 		return -1;
 	}
 
-	if (i2c_read(SLAVE_ADDR, &reg_addr, store, REG_SIZE) != 0){
+	if (i2c_read(SLAVE_ADDR, data, store, REG_SIZE) != 0){
 		pr_err("BMP --> Error, no se pudo leer el registro.\n");
 		return -1; 
 	}
 
 	return 0;
+	
 }
  
 void bmp_measure(void){
@@ -68,14 +68,14 @@ void bmp_measure(void){
 	long b3, b4, b5, b6, b7;
 
 	// leo la temperatura "raw"
-	bmp_write_reg(REG_CTRL_MEAS, START_TEMP);
+	bmp_write_reg(REG_CTRL_MEAS, START_TEMP, 2);
 	bmp_read_reg(REG_OUT_MSB, &bmp.measures.t_msb);
 	bmp_read_reg(REG_OUT_LSB, &bmp.measures.t_lsb);
 
 	ut = GET_REG_VALUE(bmp.measures.t_msb, bmp.measures.t_lsb);
 
 	// leo la presion "raw"
-	bmp_write_reg(REG_CTRL_MEAS, START_PRES | (OSS_STD << 6));
+	bmp_write_reg(REG_CTRL_MEAS, START_PRES | (OSS_STD << 6), 2);
 	bmp_read_reg(REG_OUT_MSB, &bmp.measures.p_msb);
 	bmp_read_reg(REG_OUT_LSB, &bmp.measures.p_lsb);
 	bmp_read_reg(REG_OUT_XLSB, &bmp.measures.p_xsb);
@@ -127,7 +127,7 @@ static void bmp_get_calib_values(void){
 	bmp_read_reg(REG_MSB_AC3, &msb);
 	bmp_read_reg(REG_LSB_AC3, &lsb);
 	bmp.calib.AC3 = GET_REG_VALUE(msb,lsb);
-	
+
 	bmp_read_reg(REG_MSB_AC4, &msb);
 	bmp_read_reg(REG_LSB_AC4, &lsb);
 	bmp.calib.AC4 = GET_REG_VALUE(msb,lsb);
@@ -139,7 +139,7 @@ static void bmp_get_calib_values(void){
 	bmp_read_reg(REG_MSB_AC6, &msb);
 	bmp_read_reg(REG_LSB_AC6, &lsb);
 	bmp.calib.AC6 = GET_REG_VALUE(msb,lsb);
-	
+
 	bmp_read_reg(REG_MSB_B1, &msb);
 	bmp_read_reg(REG_LSB_B1,  &lsb);
 	bmp.calib.B1 = GET_REG_VALUE(msb,lsb);
@@ -147,24 +147,36 @@ static void bmp_get_calib_values(void){
 	bmp_read_reg(REG_MSB_B2, &msb);
 	bmp_read_reg(REG_LSB_B2,  &lsb);
 	bmp.calib.B2 = GET_REG_VALUE(msb,lsb);
-	
+
 	bmp_read_reg(REG_MSB_MB, &msb);
 	bmp_read_reg(REG_LSB_MB,  &lsb);
 	bmp.calib.MB = GET_REG_VALUE(msb,lsb);
-
+	
 	bmp_read_reg(REG_MSB_MC, &msb);
 	bmp_read_reg(REG_LSB_MC, &lsb);
 	bmp.calib.MC = GET_REG_VALUE(msb,lsb);
 	
-	bmp_read_reg(REG_LSB_MD, &lsb);
 	bmp_read_reg(REG_MSB_MD, &msb);
-	bmp.calib.MD = GET_REG_VALUE(msb,lsb);
+	bmp_read_reg(REG_LSB_MD, &lsb);
+	bmp.calib.MD = GET_REG_VALUE(msb,lsb);	
+
+	pr_info("BMP --> Calib AC1: %i", bmp.calib.AC1);
+	pr_info("BMP --> Calib AC2: %i", bmp.calib.AC2);
+	pr_info("BMP --> Calib AC3: %i", bmp.calib.AC3);
+	pr_info("BMP --> Calib AC4: %i", bmp.calib.AC4);
+	pr_info("BMP --> Calib AC5: %i", bmp.calib.AC5);	
+	pr_info("BMP --> Calib AC6: %i", bmp.calib.AC6);
+	pr_info("BMP --> Calib B1:  %i", bmp.calib.B1);
+	pr_info("BMP --> Calib B2:  %i", bmp.calib.B2);
+	pr_info("BMP --> Calib MC:  %i", bmp.calib.MC);
+	pr_info("BMP --> Calib MB:  %i", bmp.calib.MB);
+	pr_info("BMP --> Calib MD:  %i", bmp.calib.MD);
 }
 
 static int bmp_check_chipid(void){
 
 	bmp_read_reg(REG_CHIP_ID, &bmp.chip_id);
-	pr_info("BMP --> El chip id es: %x", bmp.chip_id);
+	//pr_info("BMP --> El chip id es: %x", bmp.chip_id);
 
 	if(bmp.chip_id == CHIP_ID) 
 		return 0;

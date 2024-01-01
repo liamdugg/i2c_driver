@@ -24,6 +24,7 @@ void i2c_remove(void);
 #define SYSCLK		48000000
 #define MODCLK		12000000
 #define OUTCLK		100000
+#define BUF_SIZE	2
 
 //#define 
 
