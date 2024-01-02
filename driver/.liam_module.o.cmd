@@ -1,1 +1,0 @@
-cmd_/home/ubuntu/i2c_driver/driver/liam_module.o := ld  -EL -z noexecstack     -r -o /home/ubuntu/i2c_driver/driver/liam_module.o /home/ubuntu/i2c_driver/driver/src/p_drv.o /home/ubuntu/i2c_driver/driver/src/i2c.o /home/ubuntu/i2c_driver/driver/src/c_dev.o /home/ubuntu/i2c_driver/driver/src/bmp.o 
