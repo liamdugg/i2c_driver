@@ -2,12 +2,12 @@
 #include "../inc/i2c.h"
 
 static bmp_t bmp;
-static uint8_t data[2];
+static char data[2];
 
 static int  bmp_check_chipid(void);
 static void bmp_get_calib_values(void);
-static int  bmp_write_reg(uint8_t reg_addr, uint8_t value, uint8_t size);
-static int  bmp_read_reg (uint8_t reg_addr, uint8_t* store);
+static int  bmp_write_reg(char reg_addr, char value, char size);
+static int  bmp_read_reg (char reg_addr, char* store);
 
 int bmp_init(void){
 
@@ -28,7 +28,7 @@ int bmp_init(void){
 	return 0;
 }
 
-static int bmp_write_reg(uint8_t reg_addr, uint8_t value, uint8_t size){
+static int bmp_write_reg(char reg_addr, char value, char size){
 
 	data[0] = reg_addr;
 	data[1] = value;
@@ -41,7 +41,7 @@ static int bmp_write_reg(uint8_t reg_addr, uint8_t value, uint8_t size){
 	return 0;
 }
 
-static int bmp_read_reg(uint8_t reg_addr, uint8_t* store){
+static int bmp_read_reg(char reg_addr, char* store){
 
 	data[0] = reg_addr;
 	data[1] = 0;// no lo uso
@@ -52,13 +52,12 @@ static int bmp_read_reg(uint8_t reg_addr, uint8_t* store){
 		return -1;
 	}
 
-	if (i2c_read(SLAVE_ADDR, data, store, REG_SIZE) != 0){
+	if (i2c_read(SLAVE_ADDR, store, 1) != 0){
 		pr_err("BMP --> Error, no se pudo leer el registro.\n");
 		return -1; 
 	}
 
 	return 0;
-	
 }
  
 void bmp_measure(void){

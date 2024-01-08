@@ -65,7 +65,7 @@ static int bmp_pdrv_probe(struct platform_device *pdev) {
 static int bmp_pdrv_remove(struct platform_device *pdev) {
 	pr_info("BMP --> Ingreso a funcion %s.\n", __func__);
 	char_dev_exit();
-	i2c_remove();
+	i2c_deinit();
 	return 0;
 }
 

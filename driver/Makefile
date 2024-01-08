@@ -34,13 +34,13 @@ rmmod:
 
 # Muestra los mensajes (dmesg), en el ejemplo todos los printk imprimen el nombre del archivo
 dmesg:
-	sudo dmesg | grep BMP 
+	sudo dmesg
 
 awk:
 	cat /proc/devices | grep $(MOD_NAME)
 
 tail:
-	tail -f /var/log/syslog | grep BMP
+	tail -f /var/log/syslog
 
 info:
 	modinfo $(MOD_NAME).ko

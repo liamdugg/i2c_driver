@@ -95,7 +95,7 @@ static int char_dev_open(struct inode* inodep, struct file* filep){
         
     if(bmp_init() != 0){
         pr_err("BMP --> No pudo inicializarse el sensor.\n");
-        i2c_remove();
+        i2c_deinit();
         return -EINVAL;
     }
 

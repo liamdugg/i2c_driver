@@ -1,427 +1,434 @@
 #include "../inc/i2c.h"
 
-/* ------------------ TYPEDEFS ---------------------- */
+/* --------------- VARIABLES ---------------*/
 
-typedef enum {
-	MODE_TX,
-	MODE_RESTART, // repeated start
-	MODE_RX,
-	MODE_IDLE
-} i2c_mode;
+static void __iomem *i2c_ptr = NULL;
+static void __iomem *clk_ptr = NULL;
+static void __iomem *control_module_ptr = NULL;
 
-typedef struct i2c_handler_t {
-	
-	struct platform_device* pdev;
-	
-	void* __iomem instance;	// i2c register mapped based addr ptr
-	uint32_t virq; 			// virtual irq
-	
-	uint8_t  tx_buf[BUF_SIZE];
-	uint8_t  tx_len; 		// cantidad a transmitir
-	uint8_t  tx_pos; 		// cantidad transmitida 
-	
-	uint8_t  rx_buf[BUF_SIZE];
-	uint8_t  rx_len; 		// cantidad a recibir
-	uint8_t  rx_pos; 		// cantidad recibida
+DEFINE_MUTEX(lock_bus);
+DECLARE_WAIT_QUEUE_HEAD(waitq);
 
-	i2c_mode mode;
+// I2C Data structure
+static struct i2c_buffers{
+    uint8_t * buff_rx;  // Pointer to user data in kernel space
+    uint8_t pos_rx;     // Data to be received. This will be updated by the ISR.
+    uint8_t buff_rx_len;
 
-} i2c_handler_t;
+    uint8_t * buff_tx;
+    uint8_t pos_tx;
+    uint8_t buff_tx_len;
+} data_i2c;
 
-/* ------------------ VARIABLES ---------------------- */
+int waitq_cond;  // Condition to handle the state of the processes.
+static int g_irq;       // IRQ number, saved for deinitialization
 
-static i2c_handler_t hm_i2c;
-
-static void* __iomem cm_per_base = NULL;
-static void* __iomem control_module_base = NULL;
-static void* __iomem instance = NULL;
-
-DEFINE_MUTEX(lock_i2c);
-DECLARE_WAIT_QUEUE_HEAD(wq);
-//DECLARE_WAIT_QUEUE_HEAD(wq);
-
-static int wq_cond_tx;
-static int wq_cond_rx;
-
-/* ------------------ PROTOTIPOS ---------------------- */
-
+/* --------------- PROTOTIPOS ---------------*/
 static int  i2c_is_busy(void);
-static int  i2c_set_irq(void);
 static int  i2c_is_locked(void);
-static int  i2c_set_txbuf(uint8_t* buf, uint8_t size);
-static void i2c_set_rxbuf(uint8_t size);
 static void i2c_set_slave(uint8_t slv_addr);
+static void i2c_power_clock(void);
+static void i2c_clear_bufs(void);
 
-/* ------------------ FUNCIONES ---------------------- */
 
-// INIT
-int i2c_init(struct platform_device* pdev){
+static void i2c_set_slave(uint8_t addr){
+    iowrite32(addr, i2c_ptr + I2C_REG_SA);
+}
 
+static void i2c_power_clock(void){
+
+    uint32_t aux;
+
+    //aux = (uint32_t)clk_ptr + (unsigned int)(IDCM_PER_I2C2_CLKCTRL); 
+    aux = ioread32(clk_ptr + IDCM_PER_I2C2_CLKCTRL); 
+    aux |= 0x02;
+    iowrite32(aux, clk_ptr + IDCM_PER_I2C2_CLKCTRL);
+    	 while(ioread32(clk_ptr + IDCM_PER_I2C2_CLKCTRL) != CM_PER_I2C2_CLKCTRL_ENABLE);
+}
+
+static int i2c_is_locked(void) {
+    
+	uint8_t i = 0;
+
+    while(mutex_is_locked(&lock_bus)) {
+        msleep(1);
+        if (i++ == 100) {
+            pr_warn("%s: TIMEOUT ERROR: I2C bus is locked.\n", DRIVER_NAME);
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+static void i2c_clear_bufs(void){
+
+    memset(data_i2c.buff_rx, 0, 4096);
+    data_i2c.pos_rx = 0;
+    data_i2c.buff_rx_len = 0;
+
+    memset(data_i2c.buff_tx, 0, 4096);
+    data_i2c.pos_tx = 0;
+    data_i2c.buff_tx_len = 0;
+}
+
+static irqreturn_t i2c_isr(int irq_number, void *dev_id) {
+    
+	int irq = ioread32(i2c_ptr + I2C_REG_IRQSTATUS);
+
+	// TX 
+    if(irq & I2C_IRQ_XRDY){ 
+        
+        iowrite32(data_i2c.buff_tx[data_i2c.pos_tx++], i2c_ptr + I2C_REG_DATA);
+    
+        if(data_i2c.buff_tx_len == data_i2c.pos_tx){
+            iowrite32(I2C_IRQENABLE_CLR_TX, i2c_ptr + I2C_REG_IRQENABLE_CLR);
+            waitq_cond = 1;
+            wake_up_interruptible(&waitq);
+        }
+
+        iowrite32(I2C_IRQSTATUS_CLR_ALL, i2c_ptr + I2C_REG_IRQSTATUS);
+    }
+	
+	// RX
+    if(irq & I2C_IRQ_RRDY){
+        
+        data_i2c.buff_rx[data_i2c.pos_rx++] = ioread32(i2c_ptr + I2C_REG_DATA);
+
+        if(data_i2c.buff_rx_len == data_i2c.pos_rx){ 
+            iowrite32(I2C_IRQENABLE_CLR_RX, i2c_ptr + I2C_REG_IRQENABLE_CLR);
+            waitq_cond = 1;
+            wake_up_interruptible(&waitq);
+        }
+
+        iowrite32(I2C_IRQSTATUS_CLR_ALL, i2c_ptr + I2C_REG_IRQSTATUS);
+    }  
+
+    return IRQ_HANDLED;
+}
+
+int i2c_init(struct platform_device *pdev) {
+    
+	struct device *i2c_dev = &pdev->dev;
+    int retval = -1;
 	uint32_t reg;
-	uint32_t div;
-	uint32_t prescaler = (SYSCLK/MODCLK) - 1;
 
-	pr_info("BMP --> Ingreso a %s\n", __func__);
-	
-	hm_i2c.pdev = pdev;
+    // Check that parent device exists (should be target-module@9c000)
+    if (i2c_dev->parent == NULL) {
+        pr_err("I2C device doesn't have a parent.\n");
+        goto pdev_error;
+    }
 
-	/* --------------- mapeos --------------- */
-	
-	pr_info("BMP --> Empiezo mapeo\n");
-	
-	cm_per_base = ioremap(CM_PER_BASE, 0x400);
-	if(cm_per_base == NULL) {
-		pr_err("BMP --> Error con mapeo de cm_per_base.\n");
-		iounmap(instance);
-		return -EINVAL;
-	}
+    // Mapeo registros
 
-	control_module_base = ioremap(CTRL_MOD_BASE, 0x2000);
-	if(control_module_base == NULL){
-		pr_err("BMP --> Error con enable en cm_per.\n");
-		iounmap(cm_per_base);
-		iounmap(instance);
-		return -EINVAL;
-	}
+    if((clk_ptr = ioremap(CM_PER, CM_PER_LEN)) == NULL){
+        pr_alert("%s: Could not assign memory for clk_ptr (CM_PER).\n", DRIVER_NAME);
+        goto pdev_error;
+    }
 
-	instance = ioremap(I2C_REG_BASE, I2C_REG_SIZE);
-	if(instance == NULL){
-		pr_err("BMP --> Error con mapeo de instance.\n");
-		return -EINVAL;
-	}
+    pr_info("%s: clk_ptr: 0x%X\n", DRIVER_NAME, (unsigned int)clk_ptr);
 
-	/* --------------- clock init --------------- */
-	
-	reg = ioread32(cm_per_base + CM_PER_I2C2_CLKCTRL);
-	reg |= CM_PER_I2C2_MODMODE_EN;
-	iowrite32(reg, cm_per_base + CM_PER_I2C2_CLKCTRL);
+    if((control_module_ptr = ioremap(CTRL_MODULE_BASE, CTRL_MODULE_LEN)) == NULL){
+        pr_alert("%s: Could not assign memory for control_module_ptr (CTRL_MODULE_BASE).\n", DRIVER_NAME);
+        goto clk_ptr_error;
+    }
 
-	reg = ioread32(cm_per_base + CM_PER_I2C2_CLKCTRL);
-	if( (reg & CM_PER_I2C2_MODMODE_MSK) != CM_PER_I2C2_MODMODE_EN){
-		pr_err("BMP --> Error con enable en cm_per.\n");
-		iounmap(cm_per_base);
-		iounmap(control_module_base);
-		iounmap(instance);
-		return -EINVAL;
-	}
-	
-	/* --------------- control module init --------------- */
-	
-	// scl
-	reg = ioread32(control_module_base + CTRL_MOD_SCL);
+    pr_info("%s: control_module_ptr: 0x%X\n", DRIVER_NAME, (unsigned int)control_module_ptr);
+
+    if((i2c_ptr = ioremap(I2C2, I2C2_LEN)) == NULL){
+        pr_alert("%s: Could not assign memory for i2c_ptr (I2C2).\n", DRIVER_NAME);
+        goto control_module_ptr_error;
+    }
+
+    pr_info("%s: i2c_ptr: 0x%X\n", DRIVER_NAME, (unsigned int)i2c_ptr);
+
+    // Pinmux configuration
+    reg = ioread32(control_module_ptr + CTRL_MOD_SCL);
 	reg &= CTRL_MOD_SCL_MSK;
 	reg |= CTRL_MOD_SCL_MODE;
-	iowrite32(reg, control_module_base + CTRL_MOD_SCL);
+	iowrite32(reg, control_module_ptr + CTRL_MOD_SCL);
 
-	// sda (cambiar valores, dejo el prototipo)
-	reg = ioread32(control_module_base + CTRL_MOD_SDA);
+	reg = ioread32(control_module_ptr + CTRL_MOD_SDA);
 	reg &= CTRL_MOD_SDA_MSK;
-	reg |= CTRL_MOD_SCL_MODE;
-	iowrite32(reg, control_module_base + CTRL_MOD_SDA);
+	reg |= CTRL_MOD_SDA_MODE;
+	iowrite32(reg, control_module_ptr + CTRL_MOD_SDA);
 
-	/* --------------- i2c init ---------------*/
-	
-	// por algun motivo siempre queda en 0 por lo que no puedo salir del loop omito el reset.	
-	// iowrite32(I2C_SYSC_SRST, instance + I2C_SYSC);
-	// do{	
-	// 	reg = ioread32(instance  + I2C_SYSS);
-	// 	pr_info("BMP --> reg: %i\n", (reg & 0x1));
-	// 	mdelay(10);
-	//
-	// } while( (reg&0x1) != 0x1); 
+    // Turn ON I2C Clock
+    i2c_power_clock();
 
-	// disable i2c2
-	reg = ioread32(instance + I2C_CON);
-	reg &= ~(I2C_CON_ENA);
-	iowrite32(0x308, instance + I2C_SYSC);
+    // Disable I2C while configuring..
+    iowrite32(0x0, i2c_ptr + I2C_REG_CON); 
 
-	// set prescaler
-	iowrite32(prescaler, instance + I2C_PSC);
+    // Clock Configuration
+    iowrite32(I2C_PSC_24MHZ, i2c_ptr + I2C_REG_PSC);
+    iowrite32(I2C_SCLL_400K, i2c_ptr + I2C_REG_SCLL); 
+    iowrite32(I2C_SCLH_400K, i2c_ptr + I2C_REG_SCLH); 
 
-	// set SCLL and SCLH
-	div = MODCLK/(2*OUTCLK);
-	iowrite32(div-7, instance + I2C_SCLL);
-	iowrite32(div-5, instance + I2C_SCLH);
+    // Force Idle
+    iowrite32(0x00, i2c_ptr + I2C_REG_SYSC);   
+    
+    // Enable I2C device
+    iowrite32(I2C_BIT_ENABLE | I2C_BIT_MASTER_MODE | I2C_BIT_TX, // 0x8600
+        i2c_ptr + I2C_REG_CON);
+    
+    // Virtual IRQ request
+    if ((g_irq = platform_get_irq(pdev, 0)) < 0) {
+        pr_err("%s: Couldn't get I2C IRQ number.\n", DRIVER_NAME);
+        goto i2c_ptr_error;
+    }
 
-	// set OWN ADDRESS
-	iowrite32(0x54, instance + I2C_OA);
+    if ((request_irq(g_irq, (irq_handler_t) i2c_isr, IRQF_TRIGGER_RISING, "lliano,i2c", NULL) < 0)){//pdev->name, NULL)) < 0) {
+        pr_err("%s: Couldn't request I2C IRQ.\n", DRIVER_NAME);
+        goto i2c_ptr_error;
+    }
 
-	// set I2C_CON 7 bit addr, master mode
-	iowrite32(0x84000, instance + I2C_CON);
+    // Internal struct init.
 
-	// configuro la irq
-	if(i2c_set_irq() != 0){
-		pr_err("BMP --> Error en la configuracion de irq.\n");
-		iounmap(cm_per_base);
-		iounmap(control_module_base);
-		iounmap(instance);
-		return -EINVAL;
-	}
+    // We ask the kernel for memory for the buffers (4kB)
+    if ((data_i2c.buff_rx = (char *) __get_free_page (GFP_KERNEL)) < 0){
+        pr_alert("%s: Error while asking por a free page.\n", DRIVER_NAME);
+        goto virq_error;
+    }
 
-	// libero los punteros que no voy a volver a usar (en teoria)
-	iounmap(control_module_base);
-	iounmap(cm_per_base);
+    if ((data_i2c.buff_tx = (char *) __get_free_page (GFP_KERNEL)) < 0){
+        pr_alert("%s: Error while asking por a free page.\n", DRIVER_NAME);
+        goto virq_error;
+    }
 
-	reg = ioread32(instance + I2C_CON);
-	reg |= I2C_CON_ENA;
-	iowrite32(reg, instance + I2C_CON);
+    pr_info("I2C successfully configured.\n");
+    return 0;
 
-	pr_info("BMP --> Saliendo de %s", __func__);
-	return 0;
+    // Error Handling
+    virq_error: free_irq(g_irq, NULL);
+    i2c_ptr_error: iounmap(i2c_ptr);
+    control_module_ptr_error: iounmap(control_module_ptr);
+    clk_ptr_error: iounmap(clk_ptr);
+    pdev_error: retval = -1; i2c_ptr = NULL; clk_ptr = NULL; control_module_ptr = NULL;
+    return retval;
 }
 
-// REMOVE
-void i2c_remove(void){
-
-	uint32_t reg;
-
-	//pr_info("BMP --> Ingreso a funcion %s", __func__);
+void i2c_deinit(void) {
+    
+	if(clk_ptr != NULL)
+        iounmap(clk_ptr);
 	
-	//pr_info("BMP --> Deshabilito I2C\n");
-	reg = ioread32(instance + I2C_CON);
-	reg &= ~(I2C_CON_ENA);
-	iowrite32(reg,instance + I2C_CON);
+	if(control_module_ptr != NULL)
+        iounmap(control_module_ptr); 
+	
+	if(i2c_ptr != NULL)
+        iounmap(i2c_ptr);
 
-	//pr_info("BMP --> Unmap instance\n");
-	iounmap(instance);
-	pr_info("BMP --> free irq\n");
-	free_irq(hm_i2c.virq, NULL);
-
-	//pr_info("BMP --> Salida de funcion %s", __func__);
-	return;
+    free_irq(g_irq, NULL);
+    free_page((unsigned long)data_i2c.buff_rx); 
+    free_page((unsigned long)data_i2c.buff_tx);
 }
 
-// WRITE
-int i2c_write(uint8_t slv_addr, uint8_t* data_to_copy, uint8_t size){
+int i2c_write(char slave_address, char* data, char size){
 
-	uint32_t reg;
+    int retval = -1;
+    int auxReg;
 
-	if(size == 0){
-		pr_err("BMP --> Error, el tamaño no puede ser cero.\n");
-		return -EINVAL;
-	}
+    if (size == 0){
+        pr_warn("%s: Write Error: Size should be greater than 0.\n", DRIVER_NAME);
+        return retval;
+    }
 
-	reg = ioread32(cm_per_base + CM_PER_I2C2_CLKCTRL);
-	reg |= CM_PER_I2C2_MODMODE_EN;
-	iowrite32(reg, cm_per_base + CM_PER_I2C2_CLKCTRL);
+    // Wait until no other process is using it
+    if(i2c_is_locked() != 0) {
+        return retval;
+    }
 
-	if(i2c_is_locked() != 0)
-		return -ETIMEDOUT;
-	
-	mutex_lock(&lock_i2c);
+    // Get control of the bus
+    mutex_lock(&lock_bus);
 
-	i2c_set_slave(slv_addr);
-	if( i2c_set_txbuf(data_to_copy, size) != 0) return -EINVAL;
-	
-	// cargo cantidad de bits a escribir
-	iowrite32(hm_i2c.tx_len, instance + I2C_CNT);
+    // Makes sure CLK is running
+    i2c_power_clock();
+    
+    // Set slave address
+    i2c_set_slave(slave_address);
+    
+    // Load the data structures and registers.
+    i2c_clear_bufs();
+    memcpy(data_i2c.buff_tx, data, size);
+    data_i2c.buff_tx_len = size;
 
-	// habilito XRDY y deshabilito RRDY y ARDY
-	iowrite32(I2C_IRQ_RRDY | I2C_IRQ_ARDY, instance + I2C_IRQENA_CLR);
-	iowrite32(I2C_IRQ_XRDY, instance + I2C_IRQENA_SET);
+    // Load I2C CNT registers
+    iowrite32(data_i2c.buff_tx_len, i2c_ptr + I2C_REG_CNT);
 
-	wq_cond_tx = 0;
-	
-	if(i2c_is_busy() != 0)
-		return -ETIMEDOUT;
+    // Sets I2C CONFIG register w/ Master TX (=0x8600)
+    iowrite32(I2C_BIT_ENABLE | I2C_BIT_MASTER_MODE | I2C_BIT_TX, i2c_ptr + I2C_REG_CON);
 
-	// modo tx, start condition, enable y master (las ultimas 2 por las dudas)
-	reg = ioread32(instance + I2C_CON);
-	reg &= ~(I2C_CON_TMOD);
-	reg |= I2C_CON_ENA | I2C_CON_MST | I2C_CON_TMOD | I2C_CON_START;
-	iowrite32(reg, instance + I2C_CON);
+    // Clear IRQ Flags
+    iowrite32(I2C_IRQSTATUS_CLR_ALL, i2c_ptr + I2C_REG_IRQENABLE_CLR); 
+    iowrite32(I2C_IRQSTATUS_CLR_ALL, i2c_ptr + I2C_REG_IRQSTATUS);
 
-	wait_event_interruptible(wq, wq_cond_tx == 1);
-	
-	reg = ioread32(instance + I2C_CON);
-	reg &= 0xFFFFFFFE;
-	reg |= I2C_CON_STOP;
-	iowrite32(reg, instance + I2C_CON);
-	
-	udelay(100);
-	mutex_unlock(&lock_i2c);
-	return 0;
+    // Enables ACK interrupt
+    iowrite32(I2C_IRQ_XRDY, i2c_ptr + I2C_REG_IRQENABLE_SET);
+
+    // Check irq status (occupied or free)
+    while (ioread32(i2c_ptr + I2C_REG_IRQSTATUS_RAW) & I2C_IRQ_BB) {msleep(1);}
+
+    // Sends START
+    waitq_cond = 0;     // We need to ensure the condition before sending the start
+
+    auxReg = ioread32(i2c_ptr + I2C_REG_CON); 
+    auxReg |= I2C_BIT_START;
+    iowrite32(auxReg, i2c_ptr + I2C_REG_CON);
+
+    // Sends process to sleep
+    wait_event_interruptible (waitq, waitq_cond != 0);
+
+    // We clear the start bit and sets the stop
+    auxReg = ioread32(i2c_ptr + I2C_REG_CON);
+    auxReg &= 0xFFFFFFFE;
+    auxReg |= I2C_BIT_STOP;
+    iowrite32(auxReg, i2c_ptr + I2C_REG_CON);
+
+    // Waits for the core to send the stop and frees the mutex.
+    udelay(100); // 100 us
+    mutex_unlock(&lock_bus);
+    if (waitq_cond > 0)
+        retval = 0;
+
+    return retval;
 }
 
-// READ
-int i2c_read(uint8_t slv_addr, uint8_t* reg_addr, uint8_t* store_buf, uint8_t size){
+int i2c_read(char slave_address, char* read_buff, char size){
 
-	uint32_t reg;
+    int retval = -1;
+    int auxReg;
 
-	if(size == 0){
-		pr_err("BMP --> Error, el tamaño no puede ser cero.\n");
-		return -EINVAL;
-	}
+    if (size == 0){
+        pr_warn("%s: Write Error: Size should be greater than 0.\n", DRIVER_NAME);
+        return retval;
+    }
 
-	reg = ioread32(cm_per_base + CM_PER_I2C2_CLKCTRL);
-	reg |= CM_PER_I2C2_MODMODE_EN;
-	iowrite32(reg, cm_per_base + CM_PER_I2C2_CLKCTRL);
+    // Wait until no other process is using it
+    if(i2c_is_locked() != 0) {
+        return retval;
+    }
 
-	if(i2c_is_locked() != 0)
-		return -ETIMEDOUT;
+    // Get control of the bus
+    mutex_lock(&lock_bus);
 
-	mutex_lock(&lock_i2c);
+    // Makes sure CLK is running
+    i2c_power_clock();
 
-	i2c_set_slave(slv_addr);
-	i2c_set_rxbuf(size);
+    // Clear IRQ Flags
+    iowrite32(I2C_IRQSTATUS_CLR_ALL, i2c_ptr + I2C_REG_IRQENABLE_CLR); 
+    iowrite32(I2C_IRQSTATUS_CLR_ALL, i2c_ptr + I2C_REG_IRQSTATUS);
+    
+    // Set slave address
+    i2c_set_slave(slave_address);
+    
+    // Load the data structures and registers.
+    i2c_clear_bufs();
+    data_i2c.buff_rx_len = size;
 
-	// habilito XRDY y deshabilito RRDY y ARDY
-	iowrite32(I2C_IRQ_XRDY | I2C_IRQ_ARDY, instance + I2C_IRQENA_CLR);
-	iowrite32(I2C_IRQ_RRDY, instance + I2C_IRQENA_SET);
+    // Load I2C DATA & CNT registers
+    iowrite32(data_i2c.buff_rx_len, i2c_ptr + I2C_REG_CNT);
 
-	// cargo cantidad de bits a escribir
-	iowrite32(size, instance + I2C_CNT);
+    // Sets I2C CONFIG register w/ Master RX (=0x8400)
+    iowrite32(I2C_BIT_ENABLE | I2C_BIT_MASTER_MODE, i2c_ptr + I2C_REG_CON); // (RX is enable with 0 at I2C_BIT_TX)
 
-	wq_cond_rx = 0;
-	// hm_i2c.mode = MODE_RX;
+    // Enables ACK interrupt
+    iowrite32(I2C_IRQ_RRDY, i2c_ptr + I2C_REG_IRQENABLE_SET);
 
-	if(i2c_is_busy() != 0)
-		return -ETIMEDOUT;
+    // Check irq status (occupied or free)
+    while (ioread32(i2c_ptr + I2C_REG_IRQSTATUS_RAW) & I2C_IRQ_BB) {msleep(1);}
 
-	// habilito, modo master, modo rx y start condition
-	reg = ioread32(instance + I2C_CON);
-	reg &= ~(I2C_CON_TMOD);
-	reg |= I2C_CON_ENA | I2C_CON_MST | I2C_CON_START;
-	iowrite32(reg, instance + I2C_CON);
+    // Sends START
+    waitq_cond = 0;
 
-	wait_event_interruptible(wq, wq_cond_rx == 1);
+    auxReg = ioread32(i2c_ptr + I2C_REG_CON); 
+    auxReg |= I2C_BIT_START;
+    iowrite32(auxReg, i2c_ptr + I2C_REG_CON);
+
+    // Sends process to sleep
+    wait_event_interruptible (waitq, waitq_cond != 0);
+
+    // We clear the start bit and sets the stop
+    auxReg = ioread32(i2c_ptr + I2C_REG_CON);
+    auxReg &= 0xFFFFFFFE;
+    auxReg |= I2C_BIT_STOP;
+    iowrite32(auxReg, i2c_ptr + I2C_REG_CON);
+
+    // Waits for the core to send the stop and frees the mutex.
+    udelay(100); // 100 us
+    mutex_unlock(&lock_bus);
+    
+	if (waitq_cond > 0){
+        memcpy(read_buff, data_i2c.buff_rx, size);
+        retval = 0;
+    }
+ 
+    return retval;
+}
+
+int i2c_read_reg(char slave_address, char reg_address, char* read_buff){
 	
-	reg = ioread32(instance + I2C_CON);
-	reg &= 0xFFFFFFFE;
-	reg |= I2C_CON_STOP;
-	iowrite32(reg, instance + I2C_CON);
-	
-	udelay(100);
+    int retval = -1;
+    int auxReg;
 
-	pr_info("BMP --> RX: 0x%x\n", hm_i2c.rx_buf[0]);
-	store_buf[0] = hm_i2c.rx_buf[0];
-	store_buf[1] = hm_i2c.rx_buf[1];
-	
-	mutex_unlock(&lock_i2c);
-	return 0;
-}
+    // Wait until no other process is using it
+    if(i2c_is_locked() != 0) {
+        return retval;
+    }
 
-// IRQ HANDLER
-static irqreturn_t i2c_handler(int irq, void *dev_id, struct pt_regs* regs){
+    // Get control of the bus
+    mutex_lock(&lock_bus);
 
-	uint32_t irq_stat = ioread32(instance + I2C_IRQSTAT);
-	//uint32_t reg;
+    // Makes sure CLK is running
+    i2c_power_clock();
+    
+    // Seteo la direccion del slave
+    i2c_set_slave(slave_address);
+    
+    // Load the data structures and registers.
+    i2c_clear_bufs();
+    data_i2c.buff_rx_len = 1;
 
-	iowrite32(irq_stat & (I2C_IRQ_RRDY | I2C_IRQ_XRDY | I2C_IRQ_ARDY), instance + I2C_IRQSTAT);
+    // Load I2C DATA & CNT registers
+    iowrite32(reg_address, i2c_ptr + I2C_REG_DATA);
+    iowrite32(1, i2c_ptr + I2C_REG_CNT);
 
-	// TX
-	if(irq_stat & I2C_IRQ_XRDY){
+    // Sets I2C CONFIG register w/ Master TX (=0x8600)
+    iowrite32(I2C_BIT_ENABLE | I2C_BIT_MASTER_MODE | I2C_BIT_TX, i2c_ptr + I2C_REG_CON);
 
-		//pr_info("BMP --> TX_POS: %i\n", hm_i2c.tx_pos);
+    // Clear IRQ Flags
+    iowrite32(I2C_IRQSTATUS_CLR_ALL, i2c_ptr + I2C_REG_IRQENABLE_CLR); 
+    iowrite32(I2C_IRQSTATUS_CLR_ALL, i2c_ptr + I2C_REG_IRQSTATUS);
 
-		pr_info("BMP --> TX: 0x%x\n", hm_i2c.tx_buf[hm_i2c.tx_pos]);
-		iowrite32(hm_i2c.tx_buf[hm_i2c.tx_pos++], instance + I2C_DATA);
+    // Enables ACK interrupt
+    iowrite32(I2C_IRQ_ARDY, i2c_ptr + I2C_REG_IRQENABLE_SET);
 
-		if(hm_i2c.tx_pos >= hm_i2c.tx_len){
-			iowrite32(I2C_IRQ_XRDY, instance + I2C_IRQENA_CLR);
-			wq_cond_tx = 1;
-			wake_up_interruptible(&wq);
-		}
-	}
+    // Check irq status (occupied or free)
+    while (ioread32(i2c_ptr + I2C_REG_IRQSTATUS_RAW) & I2C_IRQ_BB) {msleep(1);}
 
-	// RX
-	if(irq_stat & I2C_IRQ_RRDY){
+    // Sends START
+    waitq_cond = 0; 
 
-		//pr_info("BMP --> RX_POS: %i\n", hm_i2c.rx_pos);
-		hm_i2c.rx_buf[hm_i2c.rx_pos++] = ioread32(instance + I2C_DATA);	
+    auxReg = ioread32(i2c_ptr + I2C_REG_CON); 
+    auxReg |= I2C_BIT_START;
+    iowrite32(auxReg, i2c_ptr + I2C_REG_CON);
 
-		if(hm_i2c.rx_pos >= hm_i2c.rx_len){
-			iowrite32(I2C_IRQ_RRDY, instance + I2C_IRQENA_CLR);
-			wq_cond_rx = 1;
-			//pr_info("BMP --> RX_OUT\n");
-			wake_up_interruptible(&wq);
-		}	
-	}
+    // Sends process to sleep
+    wait_event_interruptible (waitq, waitq_cond != 0);
 
-	if (irq_stat & I2C_IRQ_NACK)
-		pr_warn("BMP --> NACK recibido.\n");
+    // We clear the start bit and sets the stop
+    auxReg = ioread32(i2c_ptr + I2C_REG_CON);
+    auxReg &= 0xFFFFFFFE;
+    auxReg |= I2C_BIT_STOP;
+    iowrite32(auxReg, i2c_ptr + I2C_REG_CON);
 
-	return (irqreturn_t) IRQ_HANDLED;
-}
+    // Waits for the core to send the stop and frees the mutex.
+    udelay(100); // 100 us
+    mutex_unlock(&lock_bus);
+    
+	if (waitq_cond > 0){
+        memcpy(read_buff, data_i2c.buff_rx, 1);
+        retval = 0;
+    }
 
-/* ------------------ AUX ---------------------- */
-
-static int i2c_is_busy(void){
-
-	int i = 0;
-
-	while( (ioread32(instance + I2C_IRQSTAT_RAW) & (1<<12)) != 0){
-
-		mdelay(1);
-
-		if(i++ == 100){
-			pr_err("BMP --> Timeout, el bus i2c esta ocupado.\n");
-			return -ETIMEDOUT;
-		}
-	}
-
-	return 0;
-}
-
-static int i2c_is_locked(void){
-	
-	int i = 0;
-
-	while(mutex_is_locked(&lock_i2c)){
-
-		mdelay(1);
-
-		if(i++ == 100){
-			pr_err("BMP --> Timeout, el mutex esta bloqueado.\n");
-			return -ETIMEDOUT;
-		}
-	}
-	return 0;
-}
-
-static int i2c_set_irq(){
-
-	//pr_info("BMP --> Entro a %s\n.", __func__);
-
-	// obtengo numero de irq
-	hm_i2c.virq = platform_get_irq(hm_i2c.pdev, 0);
-	if(hm_i2c.virq < 0){
-		pr_err("BMP --> No se pudo obtener numero de IRQ.\n");
-		return -EINVAL;
-	}
-
-	//pr_info("BMP --> Entro a %s\n.", __func__);
-
-	// seteo el handler de la irq del i2c
-	if(request_irq(hm_i2c.virq, (irq_handler_t)i2c_handler, IRQF_TRIGGER_RISING, "liam,i2c", NULL) < 0){
-		pr_err("BMP --> No pudo setearse la isr correctamente.\n");
-		return -EINVAL;
-	}
-	
-	//pr_info("BMP --> Salgo de %s\n.", __func__);
-	return 0;
-}
-
-static int i2c_set_txbuf(uint8_t* buf, uint8_t size){
-
-	// reservo memoria y luego copio el contenido de buffer
-	hm_i2c.tx_buf[0] = buf[0];
-	hm_i2c.tx_buf[1] = buf[1];
-
-	hm_i2c.tx_len = size;	// seteo el tamano
-	hm_i2c.tx_pos = 0;		// seteo la posicion actual a 0
-	return 0;
-}
-
-static void i2c_set_rxbuf(uint8_t size){
-
-	hm_i2c.rx_buf[0] = 0;
-	hm_i2c.rx_buf[1] = 0;
-
-	hm_i2c.rx_len = size;	// seteo el tamano
-	hm_i2c.rx_pos = 0;		// seteo la posicion actual a 0
-}
-
-static void i2c_set_slave(uint8_t slv_addr){
-	iowrite32(slv_addr, instance + I2C_SA);
+    return retval;
 }
