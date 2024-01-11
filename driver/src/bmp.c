@@ -174,7 +174,7 @@ int16_t bmp_get_temp(){
 	// TODO: parametro para convertir a unidad pedida (hacerlo con ioctl?)
 	bmp.temp = ((bmp.calib.B5 + 8) >> 4); 
 	
-	pr_info("BMP --> La temperatura es %f °C\n", (float)(bmp.temp/10));
+	pr_info("BMP --> La temperatura es %i °C\n", bmp.temp);
 	return bmp.temp;
 }
 
@@ -192,7 +192,7 @@ static uint32_t bmp_get_uncomp_pres(void){
 	// TODO: hacer variable el registro oversampling setting
 	bmp_write_reg(start, 2);
 
-	mdelay(5); // delay pedido para poder hacer la medicion
+	mdelay(8); // delay pedido para poder hacer la medicion
 
 	bmp_read_reg(REG_OUT_MSB, &up_msb);
 	bmp_read_reg(REG_OUT_LSB, &up_lsb);

@@ -302,7 +302,7 @@ static irqreturn_t i2c_handler(int irq_number, void *dev_id) {
 	// TX 
     if(irq & I2C_IRQ_XRDY){ 
         
-        pr_info("BMP --> TX: 0x%x\n", hm_i2c.tx_buf[hm_i2c.tx_pos]);
+        //pr_info("BMP --> TX: 0x%x\n", hm_i2c.tx_buf[hm_i2c.tx_pos]);
         iowrite32(hm_i2c.tx_buf[hm_i2c.tx_pos++], i2c_ptr + I2C_DATA);
     
         if(hm_i2c.tx_len == hm_i2c.tx_pos){
@@ -318,7 +318,7 @@ static irqreturn_t i2c_handler(int irq_number, void *dev_id) {
     if(irq & I2C_IRQ_RRDY){
         
         hm_i2c.rx_buf[hm_i2c.rx_pos++] = ioread32(i2c_ptr + I2C_DATA);
-        pr_info("BMP --> RX: 0x%x\n", hm_i2c.rx_buf[hm_i2c.rx_pos -1]);
+        //pr_info("BMP --> RX: 0x%x\n", hm_i2c.rx_buf[hm_i2c.rx_pos -1]);
 
         if(hm_i2c.rx_len == hm_i2c.rx_pos){ 
             iowrite32(I2C_IRQENA_CLR_RX, i2c_ptr + I2C_IRQENA_CLR);
