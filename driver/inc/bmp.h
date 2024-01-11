@@ -1,7 +1,7 @@
 /* ---------- INCLUDES ----------*/
+
 #include <asm-generic/errno.h>
 #include <asm-generic/errno-base.h>
-
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/fs.h>
@@ -19,10 +19,10 @@
 #include <linux/uaccess.h>
 #include <linux/version.h>
 
-int  bmp_init(void);
-void bmp_measure(void);
-long bmp_get_temp(void);
-long bmp_get_pres(void);
+int  	bmp_init(void);
+void 	bmp_measure(void);
+int16_t bmp_get_temp(void);
+int32_t bmp_get_pres(void);
 
 /* ---------- DEFINES ----------*/
 
@@ -31,48 +31,48 @@ long bmp_get_pres(void);
 #define MSB_INDEX 	1
 #define REG_SIZE	1
 
-#define GET_REG_VALUE(msb,lsb) ((msb << 8) | lsb)
+#define TEMP_BIT_1 0
+#define TEMP_BIT_0 1
+
+#define PRES_BIT_3 2
+#define PRES_BIT_2 3
+#define PRES_BIT_1 4
+#define PRES_BIT_0 5
+
+#define GET_REG_VALUE(msb,lsb) ((uint16_t)(((msb << 8) | lsb)))
 
 /* ---------- TYPEDEFS ----------*/
+
 typedef struct {
-	short	 		AC1;
-	short  			AC2;
-	short  			AC3;
-	unsigned short 	AC4;
-	unsigned short 	AC5;
-	unsigned short 	AC6;	
-	short 			B1;
-	short 			B2;
-	short 			MB;
-	short 			MC;
-	short 			MD;
+	int16_t  AC1;
+	int16_t  AC2;
+	int16_t  AC3;
+	uint16_t AC4;
+	uint16_t AC5;
+	uint16_t AC6;	
+	int16_t  B1;
+	int16_t  B2;
+	int16_t  MB;
+	int16_t  MC;
+	int16_t  MD;
+
+	int32_t  B5; // este se calcula, no se lee
 } bmp_calib_t;
-
-typedef struct {
-	
-	uint8_t t_lsb;
-	uint8_t t_msb;
-	uint8_t p_lsb;
-	uint8_t p_msb;
-	uint8_t p_xsb;
-
-} measures_t;
 
 typedef struct {
 
 	uint8_t chip_id;
 	uint8_t slv_addr;
 	uint8_t mode;
+	
 	bmp_calib_t calib;
-	measures_t measures;
 
-	long temp;
-	long pres;
+	int16_t temp;
+	int32_t pres;
 } bmp_t;
 
-
 /* --------------- BMP --------------- */
-/* source https://cdn-shop.adafruit.com/datasheets/BST-BMP180-DS000-09.pdf */
+/* https://cdn-shop.adafruit.com/datasheets/BST-BMP180-DS000-09.pdf */
 
 #define SLAVE_ADDR	0x77
 
@@ -121,4 +121,3 @@ typedef struct {
 #define OSS_STD			0x1 // solo voy a usar este en principio
 #define OSS_HRES		0x2
 #define OSS_UHRES		0x3
-

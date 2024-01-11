@@ -1,6 +1,3 @@
-#ifndef _I2C_H
-#define _I2C_H
-
 #include <linux/init.h>
 #include <linux/module.h>
 #include <asm/io.h>
@@ -20,51 +17,12 @@
 #include <linux/of_clk.h>
 #include <linux/clk.h>
 
-void i2c_deinit(void);
+void i2c_remove(void);
 int  i2c_init(struct platform_device *pdev);
 int  i2c_write(char slave_address, char* data, char size);
 int  i2c_read(char slave_address, char* read_buff, char size);
 
-typedef struct {
-    
-    uint8_t * tx_buf;
-	uint8_t * rx_buf;  
-    
-    uint8_t tx_pos;
-	uint8_t rx_pos;   
-
-    uint8_t rx_len;
-    uint8_t tx_len;
-
-	uint32_t virq;
-
-} i2c_handler_t;
-
-// clock module peripheral register
-
-#define CM_PER_BASE			0x44E00000
-#define CM_PER_LEN			0x400
-
-#define CM_PER_CLKCTRL		0x44
-#define CM_PER_CLKCTRL_ENA	0x2
-#define CM_PER_CLKCTRL_MASK	0x00030003
-
-// control module
-
-#define CTRL_MOD_BASE		0x44E10000
-#define CTRL_MOD_LEN		0x2000 
-
-#define CTRL_MOD_SCL		0x97C
-#define CTRL_MOD_SDA		0x978
-
-#define CTRL_MOD_SCL_MODE	0x33
-#define CTRL_MOD_SDA_MODE	0x33
-
-#define CTRL_MOD_SCL_MSK	0xFFFFFFC0
-#define CTRL_MOD_SDA_MSK	0xFFFFFFC0
-
 // I2C2
-
 #define I2C_BASE			0x4819C000
 #define I2C_LEN				0x1000
 
@@ -117,10 +75,6 @@ typedef struct {
 #define I2C_IRQENA_CLR_RX	0x00000008
 #define I2C_IRQENA_CLR_TX	0x00000010
 
-// BUF
-//#define I2C_BIT_RXFIFO_CLR      (1 << 14)
-//#define I2C_BIT_TXFIFO_CLR      (1 << 6)
-
 // PSC
 #define I2C_PSC_MASK		0x000000FF
 #define I2C_PSC_12MHZ		0x00000003 // div por 3, 48MHz/4 = 12MHz 
@@ -136,4 +90,23 @@ typedef struct {
 #define I2C_SCLH_400K		0x00000019 // THIGH = 1,25 uS = (25+5)*(1/48MHz)
 #define I2C_SCLH_100K		0x000000EB // THIGH = 5,00 uS = (235+5)*(1/48MHz)
 
-#endif // _I2C_H
+// clock module peripheral register
+#define CM_PER_BASE			0x44E00000
+#define CM_PER_LEN			0x400
+
+#define CM_PER_CLKCTRL		0x44
+#define CM_PER_CLKCTRL_ENA	0x2
+#define CM_PER_CLKCTRL_MASK	0x00030003
+
+// control module
+#define CTRL_MOD_BASE		0x44E10000
+#define CTRL_MOD_LEN		0x2000 
+
+#define CTRL_MOD_SCL		0x97C
+#define CTRL_MOD_SDA		0x978
+
+#define CTRL_MOD_SCL_MODE	0x33
+#define CTRL_MOD_SDA_MODE	0x33
+
+#define CTRL_MOD_SCL_MSK	0xFFFFFFC0
+#define CTRL_MOD_SDA_MSK	0xFFFFFFC0

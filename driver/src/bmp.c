@@ -2,12 +2,15 @@
 #include "../inc/i2c.h"
 
 static bmp_t bmp;
-static char data[2];
+//static char data[3];
 
-static int  bmp_check_chipid(void);
-static void bmp_get_calib_values(void);
-static int  bmp_write_reg(char reg_addr, char value, char size);
-static int  bmp_read_reg (char reg_addr, char* store);
+static int		bmp_check_chipid(void);
+static uint16_t	bmp_get_uncomp_temp(void);
+static uint32_t	bmp_get_uncomp_pres(void);
+static void		bmp_get_calib_values(void);
+static int		bmp_write_reg(char* send_buf, char size);
+static int		bmp_read_reg(char reg_addr, char* store);
+
 
 int bmp_init(void){
 
@@ -28,12 +31,12 @@ int bmp_init(void){
 	return 0;
 }
 
-static int bmp_write_reg(char reg_addr, char value, char size){
+static int bmp_write_reg(char* send_buf, char size){
 
-	data[0] = reg_addr;
-	data[1] = value;
+	// data[0] = reg_addr;
+	// data[1] = value;
 
-	if(i2c_write(SLAVE_ADDR, data, size) != 0){
+	if(i2c_write(SLAVE_ADDR, send_buf, size) != 0){
 		pr_err("BMP--> Error, no se pudo escribir el registro");
 		return -1;
 	}
@@ -43,12 +46,14 @@ static int bmp_write_reg(char reg_addr, char value, char size){
 
 static int bmp_read_reg(char reg_addr, char* store){
 
-	data[0] = reg_addr;
-	data[1] = 0;// no lo uso
+	// data[0] = reg_addr;
+	// data[1] = 0;
+	// data[2] = 0;
 
-	// podria pasar data directamente pero queda mas claro con &data[0] creo
-	if( i2c_write(SLAVE_ADDR, data, 1) != 0){
-		pr_err("BMP --> Error, no se pudo leer el registro.\n");
+	char reg = reg_addr;
+
+	if( i2c_write(SLAVE_ADDR, &reg, 1) != 0){
+		pr_err("BMP --> Error, no se pudo escribir el registro.\n");
 		return -1;
 	}
 
@@ -60,60 +65,9 @@ static int bmp_read_reg(char reg_addr, char* store){
 	return 0;
 }
  
-void bmp_measure(void){
-
-	long ut, up; 
-	long x1, x2, x3;
-	long b3, b4, b5, b6, b7;
-
-	// leo la temperatura "raw"
-	bmp_write_reg(REG_CTRL_MEAS, START_TEMP, 2);
-	bmp_read_reg(REG_OUT_MSB, &bmp.measures.t_msb);
-	bmp_read_reg(REG_OUT_LSB, &bmp.measures.t_lsb);
-
-	ut = GET_REG_VALUE(bmp.measures.t_msb, bmp.measures.t_lsb);
-
-	// leo la presion "raw"
-	bmp_write_reg(REG_CTRL_MEAS, START_PRES | (OSS_STD << 6), 2);
-	bmp_read_reg(REG_OUT_MSB, &bmp.measures.p_msb);
-	bmp_read_reg(REG_OUT_LSB, &bmp.measures.p_lsb);
-	bmp_read_reg(REG_OUT_XLSB, &bmp.measures.p_xsb);
-
-	up = ((bmp.measures.p_msb << 16) | (bmp.measures.p_lsb << 8) | (bmp.measures.p_xsb)) >> (8-OSS_STD);
-	
-	x1 = (ut- bmp.calib.AC6)*(bmp.calib.AC5/32768);
-	x2 = (bmp.calib.MC * 2048)/(x1 + bmp.calib.MD);
-	b5 = x1+x2;
-
-	// obtengo el valor en celsius
-	bmp.temp = (b5+8)/16;
-
-	b6 = b5-4000;
-	x1 = (bmp.calib.B2*(b6*b6/4096)) /2048;
-	x2 = bmp.calib.AC2*b6 / 2048;
-	x3 = x1+x2;
-	b3 = (((bmp.calib.AC1*4 + x3) << OSS_STD)+2)/4;
-	x1 = bmp.calib.AC3 * b6/8192;
-	x2 = (bmp.calib.B1 * (b6*b6/4096))/65536;
-	x3 = ((x1+x2)+2)/4;
-	b4 = bmp.calib.AC4 * (unsigned long)(x3 + 32768)/32768;
-	b7 = ((unsigned long)up-b3) * (50000 >> OSS_STD);
-
-	if(b7 < 0x80000000) bmp.pres = (b7*2)/b4;
-	else bmp.pres = (b7/b4)*2;
-
-	x1 = (bmp.pres/256)*(bmp.pres/256);
-	x1 = (x1 *3038)/65536;
-	x2 = (-7357*bmp.pres)/65536;
-
-	bmp.pres += (x1+x2+3791)/16;
-
-	return;
-}
-
 static void bmp_get_calib_values(void){
 
-	uint8_t msb, lsb;
+	char msb, lsb;
 
 	bmp_read_reg(REG_MSB_AC1, &msb);
 	bmp_read_reg(REG_LSB_AC1, &lsb);
@@ -159,23 +113,22 @@ static void bmp_get_calib_values(void){
 	bmp_read_reg(REG_LSB_MD, &lsb);
 	bmp.calib.MD = GET_REG_VALUE(msb,lsb);	
 
-	pr_info("BMP --> Calib AC1: %i", bmp.calib.AC1);
-	pr_info("BMP --> Calib AC2: %i", bmp.calib.AC2);
-	pr_info("BMP --> Calib AC3: %i", bmp.calib.AC3);
-	pr_info("BMP --> Calib AC4: %i", bmp.calib.AC4);
-	pr_info("BMP --> Calib AC5: %i", bmp.calib.AC5);	
-	pr_info("BMP --> Calib AC6: %i", bmp.calib.AC6);
-	pr_info("BMP --> Calib B1:  %i", bmp.calib.B1);
-	pr_info("BMP --> Calib B2:  %i", bmp.calib.B2);
-	pr_info("BMP --> Calib MC:  %i", bmp.calib.MC);
-	pr_info("BMP --> Calib MB:  %i", bmp.calib.MB);
-	pr_info("BMP --> Calib MD:  %i", bmp.calib.MD);
+	// pr_info("BMP --> Calib AC1: %i\n", bmp.calib.AC1);
+	// pr_info("BMP --> Calib AC2: %i\n", bmp.calib.AC2);
+	// pr_info("BMP --> Calib AC3: %i\n", bmp.calib.AC3);
+	// pr_info("BMP --> Calib AC4: %i\n", bmp.calib.AC4);
+	// pr_info("BMP --> Calib AC5: %i\n", bmp.calib.AC5);	
+	// pr_info("BMP --> Calib AC6: %i\n", bmp.calib.AC6);
+	// pr_info("BMP --> Calib B1:  %i\n", bmp.calib.B1);
+	// pr_info("BMP --> Calib B2:  %i\n", bmp.calib.B2);
+	// pr_info("BMP --> Calib MC:  %i\n", bmp.calib.MC);
+	// pr_info("BMP --> Calib MB:  %i\n", bmp.calib.MB);
+	// pr_info("BMP --> Calib MD:  %i\n", bmp.calib.MD);
 }
 
 static int bmp_check_chipid(void){
 
 	bmp_read_reg(REG_CHIP_ID, &bmp.chip_id);
-	//pr_info("BMP --> El chip id es: %x", bmp.chip_id);
 
 	if(bmp.chip_id == CHIP_ID) 
 		return 0;
@@ -184,10 +137,123 @@ static int bmp_check_chipid(void){
 	return -EINVAL;
 }
 
-long bmp_get_temp(void){
+static uint16_t bmp_get_uncomp_temp(void){
+
+	uint8_t ut_msb = 0;
+	uint8_t ut_lsb = 0;
+
+	char start[] = {REG_CTRL_MEAS, START_TEMP};
+
+	bmp_write_reg(start, 2); // start de medicion de temp
+
+	mdelay(5);
+
+	bmp_read_reg(REG_OUT_MSB, &ut_msb);
+	bmp_read_reg(REG_OUT_LSB, &ut_lsb);
+
+	return GET_REG_VALUE(ut_msb, ut_lsb);
+}
+
+int16_t bmp_get_temp(){
+
+	int32_t uncomp_temp = (int32_t)bmp_get_uncomp_temp();
+	int32_t x1=0, x2=0;
+
+	x1 = (( uncomp_temp - (int32_t)bmp.calib.AC6 ) * (int32_t)bmp.calib.AC5) >> 15;
+
+	if(x1 == 0 || bmp.calib.MD == 0){
+		pr_err("BMP --> Dato invalido del sensor \n");
+		return -1;
+	}
+
+	x2 = ((int32_t)bmp.calib.MC << 11) / (x1 + bmp.calib.MD);
+
+	bmp.calib.B5 = x1 + x2;
+	
+	// temp en celsius
+	// TODO: parametro para convertir a unidad pedida (hacerlo con ioctl?)
+	bmp.temp = ((bmp.calib.B5 + 8) >> 4); 
+	
+	pr_info("BMP --> La temperatura es %f °C\n", (float)(bmp.temp/10));
 	return bmp.temp;
 }
 
-long bmp_get_pres(void){
+static uint32_t bmp_get_uncomp_pres(void){
+
+	uint8_t up_msb = 0; 
+	uint8_t up_lsb = 0; 
+	uint8_t up_xsb = 0;
+	uint32_t up;
+
+	char start[] = {REG_CTRL_MEAS, START_PRES + (OSS_STD << 6)};
+
+	
+	// start de medicion de temp (oversampling setting --> standard)
+	// TODO: hacer variable el registro oversampling setting
+	bmp_write_reg(start, 2);
+
+	mdelay(5); // delay pedido para poder hacer la medicion
+
+	bmp_read_reg(REG_OUT_MSB, &up_msb);
+	bmp_read_reg(REG_OUT_LSB, &up_lsb);
+	bmp_read_reg(REG_OUT_XLSB, &up_xsb);
+
+	up = (uint32_t)(((uint32_t)up_msb) << 16) | 
+	     (uint32_t)(up_lsb<<8) | 
+		 (uint32_t)((uint32_t)up_xsb >> (8-OSS_STD));
+
+	// TODO: hacerlo legible
+	return up;
+}
+
+int32_t bmp_get_pres(void){
+
+	uint32_t uncomp_pres;
+	uint32_t b4=0, b7=0;
+	int32_t  x1=0, x2=0, x3=0, b3=0, b6=0;
+
+	uncomp_pres = bmp_get_uncomp_pres();
+
+	b6 = bmp.calib.B5 - 4000;
+
+	x1 = (b6*b6) >> 12;
+	x1 *= bmp.calib.B2;
+	x1 >>= 11;
+	x2 = bmp.calib.AC2 * b6;
+	x2 >>= 11;
+	x3 = x1 + x2;
+	b3 = (( (((int32_t)bmp.calib.AC1) * 4 + x3) << OSS_STD ) + 2) >> 2;
+
+	x1 = (bmp.calib.AC3 * b6) >> 13;
+	x2 = (bmp.calib.B1 * ((b6*b6) >> 12)) >> 16;
+	x3 = ((x1+x2) + 2) >> 2;
+	b4 = (bmp.calib.AC4 * (uint32_t)(x3+32768)) >> 15;
+	b7 = ((uint32_t)(uncomp_pres - b3) * (50000 >> OSS_STD));
+
+	if (b7 < 0x80000000){
+
+		if (b4 != 0)
+			bmp.pres = (b7 << 1) / b4;
+
+		else 
+			return -1;
+	}
+
+	else {
+
+		if (b4 != 0)
+			bmp.pres = (b7 / b4) << 1;
+
+		else return -1;
+	}
+
+	x1 = bmp.pres >> 8;
+	x1 *= x1;
+	x1 = (x1 * 3038) >> 16;
+	x2 = (bmp.pres * (-7357)) >> 16;
+
+	// presion en Pa
+	bmp.pres += (x1 + x2 + 3791) >> 04;
+	pr_info("BMP --> La presion es %i Pa\n", bmp.pres);
 	return bmp.pres;
 }

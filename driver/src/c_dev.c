@@ -15,7 +15,7 @@ static dev_t devt;
 static struct cdev              bmp_cdev;
 static struct class 	        *bmp_class;
 static struct device 	        *bmp_dev;
-//static struct platform_device   *bmp_pdev;
+static struct platform_device   *bmp_pdev;
 
 static struct file_operations fops = {
     .owner 			= THIS_MODULE,
@@ -32,10 +32,11 @@ int char_dev_init(struct platform_device* pdev) {
 
     // obtengo major y minor
     if( alloc_chrdev_region(&devt, MINOR_NUMBER, NUM_OF_DEVICES, "bmp180") != 0){
-        pr_err("BMP --> Error alloc_chrdcev_region.\n");
+        pr_err("BMP --> Error alloc_chrdev_region.\n");
         return -EINVAL;
     }
-    pr_info("BMP --> Major number: %i\n", MAJOR(devt));
+    
+    //pr_info("BMP --> Major number: %i\n", MAJOR(devt));
 
     // creo la clase
     if( (bmp_class = class_create(THIS_MODULE, "liam-temp-sensor")) == NULL){
@@ -43,7 +44,8 @@ int char_dev_init(struct platform_device* pdev) {
         unregister_chrdev(devt, "bmp180");
         return -EINVAL;
     }
-    pr_info("BMP --> Clase creada.\n");
+
+    //pr_info("BMP --> Clase creada.\n");
 
     // creo el archivo del cdev
     if((bmp_dev = device_create(bmp_class, NULL, devt, NULL, "bmp180")) == NULL){
@@ -53,7 +55,7 @@ int char_dev_init(struct platform_device* pdev) {
         return -EINVAL;
     }
 
-    pr_info("BMP --> Device creado.\n");
+    //pr_info("BMP --> Device creado.\n");
 
     // inicializo y registro
     cdev_init(&bmp_cdev, &fops);
@@ -65,101 +67,95 @@ int char_dev_init(struct platform_device* pdev) {
         return -EINVAL;
     }
     
-    pr_info("BMP --> Device inicializado y registrado.\n");
+    // pr_info("BMP --> Device inicializado y registrado.\n");
 
-    //bmp_pdev = pdev; // en teoria ya no lo uso
+    bmp_pdev = pdev; // en teoria ya no lo uso
 
     pr_info("BMP --> Char device creado corretamente.\n");
     return 0;
 }
 
 void char_dev_exit(void){
-    
-    pr_info("BMP --> Ingreso a funcion %s.\n", __func__);
-    
+        
     device_destroy(bmp_class, devt);
     class_destroy(bmp_class);
     unregister_chrdev(devt, "bmp180");
     
-    pr_info("BMP --> Salida de funcion %s.\n", __func__);
+    pr_info("BMP --> %s.\n", __func__);
 }
 
 static int char_dev_open(struct inode* inodep, struct file* filep){
 
-    pr_info("BMP --> Ingreso a funcion %s\n", __func__);
-
-    /*if(i2c_init(bmp_pdev) != 0){
+    if(i2c_init(bmp_pdev) != 0){
         pr_err("BMP --> No pudo inicializarse el modulo i2c.\n");
         return -EINVAL;
-    }*/
+    }
         
     if(bmp_init() != 0){
         pr_err("BMP --> No pudo inicializarse el sensor.\n");
-        i2c_deinit();
+        i2c_remove();
         return -EINVAL;
     }
 
-    pr_info("BMP --> Salida de funcion %s\n", __func__);
+    pr_info("BMP --> %s\n", __func__);
     return 0;
 }
 
 static int char_dev_close(struct inode* inodep, struct file* filep){
 
-    //pr_info("BMP --> Ingreso a funcion %s\n", __func__);
-    //pr_info("BMP --> Salida de funcion %s\n", __func__);
-    //i2c_remove();
+    i2c_remove();
     return 0;
 }
 
 static ssize_t char_dev_read(struct file* filep, char* usr_buf, size_t len, loff_t* offset){
     
-    //char aux_buf[len];
+    char data[6];
+    
+    int16_t temp;
+    int32_t pres;
 
-    //pr_info("BMP --> Ingreso a funcion %s.\n", __func__);
-    /*
-    // si quiere leer un solo valor asumo que quiere el de temperatura
-    // si quiere 2 envio temperatura y presion.
-    if(len != 1 && len != 2){
-        pr_err("BMP --> Error, ingrese un valor valido de datos requeridos.\n");
+    if(len != 6){
+        pr_err("BMP --> tamaño insuficiente para presion y temperatura (=/=6)\n");
         return 0;
     }
-
+     
+    // chequeo si el puntero es valido (perteneciente a user space)
     if(!access_ok(VERIFY_READ, usr_buf, len)){
         pr_err("BMP --> Puntero de usuario invalido.No se puede realizar la medicion\n");
         return 0;
     } 
 
-    bmp_measure();
+    // OBTENER VALORES
+    temp = bmp_get_temp();
+    pres = bmp_get_pres();
 
-    aux_buf[0] = (char)bmp_get_temp();
-    pr_info("BMP --> La temperatura es de %c °C.\n", aux_buf[0]);
+    data[TEMP_BIT_1] = (temp >> 8)  & 0xFF; // MSB 
+    data[TEMP_BIT_0] = temp & 0xFF;         // LSB
 
-    if(len == 2){
-        aux_buf[1] = (char)(bmp_get_pres()/1000); // /1000 para obtener en kPa y que entre en un char
-        pr_info("BMP --> La presion es de %c kPa.\n", usr_buf[1]);
-    }
+    data[PRES_BIT_3] = (pres >> 24) & 0xFF;
+    data[PRES_BIT_2] = (pres >> 16) & 0xFF;
+    data[PRES_BIT_1] = (pres >> 8)  & 0xFF;
+    data[PRES_BIT_0] = pres & 0xFF;
 
     // envio el buffer al usuario
-    if(copy_to_user(usr_buf, aux_buf, len) != 0){
+    if(copy_to_user(usr_buf, data, len) != 0){
         pr_err("BMP --> Error enviando valores al usuario.\n");
         return 0;
-    }*/
+    }
 
-   // pr_info("BMP --> Salida de funcion %s\n", __func__);
+    // pr_info("BMP --> Salida de funcion %s\n", __func__);
 	return len;
 }
 
 static ssize_t char_dev_write(struct file* filep, const char* buffer, size_t len, loff_t* offset){
 	
-    pr_info("BMP --> Ingreso a funcion %s\n", __func__);
-    pr_info("BMP --> Salida de funcion %s\n", __func__);
+    pr_info("BMP --> %s\n", __func__);
     return len;
 }
 
 static long int char_dev_ioctl(struct file* file, unsigned cmd, unsigned long __user arg){
 
-    //pr_info("BMP --> Ingreso a funcion %s\n", __func__);
-    //pr_info("BMP --> Salida de funcion %s\n", __func__);
+    //pr_info("BMP --> %s\n", __func__);
 	return 0;
 }
 

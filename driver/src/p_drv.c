@@ -54,18 +54,17 @@ static int bmp_pdrv_probe(struct platform_device *pdev) {
 		return -EINVAL;
 	}
 
-	if(i2c_init(pdev) != 0){
+	/*if(i2c_init(pdev) != 0){
         pr_err("BMP --> No pudo inicializarse el modulo i2c.\n");
         return -EINVAL;
-	}
+	}*/
 	
 	return 0;
 }
 
 static int bmp_pdrv_remove(struct platform_device *pdev) {
-	pr_info("BMP --> Ingreso a funcion %s.\n", __func__);
 	char_dev_exit();
-	i2c_deinit();
+	pr_info("BMP --> %s.\n", __func__);
 	return 0;
 }
 
@@ -96,8 +95,6 @@ static int bmp_pdrv_check_properties(void){
 
 // llamada al usar insmod
 static int __init bmp_pdrv_init(void){
-
-	pr_info("BMP --> Ingreso a funcion %s.\n", __func__);
 	
 	// registro platform driver
 	if( platform_driver_register(&bmp_pdrv) != 0){
@@ -105,23 +102,21 @@ static int __init bmp_pdrv_init(void){
 		return -EINVAL;
 	} 
 
-	pr_info("BMP --> Platform driver registrado correctamente.\n");
+	pr_info("BMP --> Platform driver inicializado correctamente.\n");
 	return 0;
 }
 
 // llamada al usar rmmod
 static void __exit bmp_pdrv_exit(void){
 
-	pr_info("BMP --> Ingreso a funcion %s.\n", __func__);
 	platform_driver_unregister(&bmp_pdrv);
 	pr_info("BMP --> Platform driver removido exitosamente.\n");
-	return;
 }
 
 module_init(bmp_pdrv_init); // bind de funcion init
 module_exit(bmp_pdrv_exit); // bind de funcion exit
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Liam Duggan");
 MODULE_VERSION("1.0");
+MODULE_AUTHOR("Liam Duggan");
 MODULE_DESCRIPTION("Driver para sensor de temperatura i2c bmp180");
